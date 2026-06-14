@@ -26,11 +26,13 @@ MIN_INDEX_CHARS = 2000
 with open(os.path.join(ROOT, "assets", "style.css"), encoding="utf-8") as _f:
     STYLE_CSS = _f.read()
 
-# 구글 폰트는 렌더링을 차단하지 않도록 비동기로 불러온다(display=swap).
+# 구글 폰트는 렌더링을 차단하지 않도록 비동기로 불러온다.
+# - 미사용 두께(Sans 500) 제거로 다운로드량 축소
+# - display=optional: 폰트가 100ms 안에 준비되지 않으면 대체글꼴 유지(늦은 스왑/리플로우·CLS 방지)
 FONT_URL = (
     "https://fonts.googleapis.com/css2?"
-    "family=Noto+Sans+KR:wght@400;500;700&"
-    "family=Noto+Serif+KR:wght@600;700;900&display=swap"
+    "family=Noto+Sans+KR:wght@400;700&"
+    "family=Noto+Serif+KR:wght@600;700;900&display=optional"
 )
 
 
