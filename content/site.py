@@ -1,10 +1,14 @@
 # 사이트 공통 설정
 # 배포 도메인 확정 후 BASE_URL 을 실제 도메인으로 변경하세요.
-BASE_URL = "https://www.bundang-massage.example.com"
+BASE_URL = "https://bundang-aroma-massage.pages.dev"
 
 BRAND = "간다GO"
 PHONE = "0508-202-4719"
 PHONE_DISPLAY = "0508-202-4719"
+
+# IndexNow 키 — 빌드 시 루트에 {INDEXNOW_KEY}.txt 파일로 생성된다.
+# 빙·네이버·얀덱스 등 IndexNow 참여 검색엔진에 즉시 색인 통보할 때 사용한다.
+INDEXNOW_KEY = "26c3cceaaa7ebc47a2731ac4aea37cf5"
 
 # 상단 메뉴 — 하위 메뉴에는 키워드를 반복하지 않고 지역명·역명만 표시한다.
 NAV = [

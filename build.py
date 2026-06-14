@@ -17,10 +17,21 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from content import PAGES
-from content.site import (BASE_URL, BRAND, NAV, PHONE, PHONE_DISPLAY)
+from content.site import (BASE_URL, BRAND, INDEXNOW_KEY, NAV, PHONE, PHONE_DISPLAY)
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 MIN_INDEX_CHARS = 2000
+
+# 렌더링 차단을 없애기 위해 빌드 시 스타일을 인라인한다.
+with open(os.path.join(ROOT, "assets", "style.css"), encoding="utf-8") as _f:
+    STYLE_CSS = _f.read()
+
+# 구글 폰트는 렌더링을 차단하지 않도록 비동기로 불러온다(display=swap).
+FONT_URL = (
+    "https://fonts.googleapis.com/css2?"
+    "family=Noto+Sans+KR:wght@400;500;700&"
+    "family=Noto+Serif+KR:wght@600;700;900&display=swap"
+)
 
 
 def text_length(body_html: str) -> int:
@@ -159,10 +170,13 @@ def render_page(page: dict) -> str:
 <link rel="icon" type="image/png" sizes="32x32" href="/assets/favicon-32.png">
 <link rel="apple-touch-icon" href="/assets/apple-touch-icon.png">
 <meta name="theme-color" content="#0a1120">
+<link rel="alternate" type="application/rss+xml" title="{BRAND} 매거진" href="/feed.xml">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700&family=Noto+Serif+KR:wght@600;700;900&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/assets/style.css">
+<link rel="preload" as="style" href="{FONT_URL}">
+<link rel="stylesheet" href="{FONT_URL}" media="print" onload="this.media='all'">
+<noscript><link rel="stylesheet" href="{FONT_URL}"></noscript>
+<style>{STYLE_CSS}</style>
 {extra_head}</head>
 <body>
 <header class="site-header">
@@ -244,15 +258,21 @@ def render_page(page: dict) -> str:
   <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6.62 10.79c1.44 2.83 3.76 5.14 6.59 6.59l2.2-2.2c.27-.27.67-.36 1.02-.24 1.12.37 2.33.57 3.57.57.55 0 1 .45 1 1V20c0 .55-.45 1-1 1-9.39 0-17-7.61-17-17 0-.55.45-1 1-1h3.5c.55 0 1 .45 1 1 0 1.25.2 2.45.57 3.57.11.35.03.74-.25 1.02l-2.2 2.2z"/></svg>
   <span class="call-fab-label">예약 전화</span>
 </a>
-<script src="/assets/nav.js"></script>
+<script src="/assets/nav.js" defer></script>
 </body>
 </html>
 """
 
 
 def build() -> None:
+    import datetime
+    from email.utils import format_datetime
+
+    base = BASE_URL.rstrip("/")
+    today = datetime.date.today().isoformat()
     report = []
-    sitemap_urls = []
+    sitemap_entries = []   # (loc, lastmod)
+    feed_items = []        # 매거진 RSS 아이템
 
     for page in PAGES:
         path = page["path"]  # "" 또는 "bundang/sunae-dong-chuljangmassage/" 형태
@@ -264,13 +284,18 @@ def build() -> None:
 
         chars = text_length(page["body"])
         noindex = page.get("noindex", False) or chars < MIN_INDEX_CHARS
+        loc = base + "/" + path
+        lastmod = page.get("date", today)
         if not noindex:
-            sitemap_urls.append(BASE_URL.rstrip("/") + "/" + path)
+            sitemap_entries.append((loc, lastmod))
+        if path.startswith("magazine/") and path != "magazine/" and not noindex:
+            feed_items.append((loc, page["title"], page["desc"], page.get("date", today)))
         report.append((path or "/", chars, "noindex" if noindex else "index"))
 
-    # sitemap.xml
+    # sitemap.xml (lastmod 포함 — 색인 신선도 신호)
     urls = "\n".join(
-        f"  <url><loc>{u}</loc></url>" for u in sitemap_urls
+        f"  <url><loc>{loc}</loc><lastmod>{lastmod}</lastmod></url>"
+        for loc, lastmod in sitemap_entries
     )
     with open(os.path.join(ROOT, "sitemap.xml"), "w", encoding="utf-8") as f:
         f.write(
@@ -279,12 +304,52 @@ def build() -> None:
             f"{urls}\n</urlset>\n"
         )
 
-    # robots.txt
+    # feed.xml (RSS 2.0 — 매거진 신규 글 발행 시 네이버·구글 발견 속도 향상)
+    feed_items.sort(key=lambda x: x[3], reverse=True)
+    build_rfc822 = format_datetime(datetime.datetime.now(datetime.timezone.utc))
+    items_xml = []
+    for loc, title, desc, date in feed_items:
+        try:
+            pub = format_datetime(
+                datetime.datetime.fromisoformat(date).replace(tzinfo=datetime.timezone.utc)
+            )
+        except ValueError:
+            pub = build_rfc822
+        items_xml.append(
+            "    <item>\n"
+            f"      <title>{html.escape(title)}</title>\n"
+            f"      <link>{loc}</link>\n"
+            f"      <guid isPermaLink=\"true\">{loc}</guid>\n"
+            f"      <description>{html.escape(desc)}</description>\n"
+            f"      <pubDate>{pub}</pubDate>\n"
+            "    </item>"
+        )
+    feed_body = "\n".join(items_xml)
+    with open(os.path.join(ROOT, "feed.xml"), "w", encoding="utf-8") as f:
+        f.write(
+            '<?xml version="1.0" encoding="UTF-8"?>\n'
+            '<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">\n'
+            "  <channel>\n"
+            f"    <title>{html.escape(BRAND)} 매거진</title>\n"
+            f"    <link>{base}/magazine/</link>\n"
+            f'    <atom:link href="{base}/feed.xml" rel="self" type="application/rss+xml"/>\n'
+            "    <description>분당 출장마사지·홈타이 매거진 — 마사지·휴식·컨디션 관리 가이드</description>\n"
+            "    <language>ko</language>\n"
+            f"    <lastBuildDate>{build_rfc822}</lastBuildDate>\n"
+            f"{feed_body}\n"
+            "  </channel>\n</rss>\n"
+        )
+
+    # robots.txt (sitemap 위치 고지)
     with open(os.path.join(ROOT, "robots.txt"), "w", encoding="utf-8") as f:
         f.write(
             "User-agent: *\nAllow: /\n\n"
-            f"Sitemap: {BASE_URL.rstrip('/')}/sitemap.xml\n"
+            f"Sitemap: {base}/sitemap.xml\n"
         )
+
+    # IndexNow 키 파일 — 빙·네이버 등에 소유권 증명용 (루트에 위치)
+    with open(os.path.join(ROOT, f"{INDEXNOW_KEY}.txt"), "w", encoding="utf-8") as f:
+        f.write(INDEXNOW_KEY + "\n")
 
     # .nojekyll (GitHub Pages)
     open(os.path.join(ROOT, ".nojekyll"), "w").close()
@@ -294,7 +359,9 @@ def build() -> None:
     for p, c, r in sorted(report):
         flag = "" if (r == "noindex" or MIN_INDEX_CHARS <= c <= 2500) else "  ⚠"
         print(f"{p.ljust(width)}  {str(c).rjust(5)}  {r}{flag}")
-    print(f"\n{len(report)} pages built, {len(sitemap_urls)} in sitemap.")
+    print(f"\n{len(report)} pages built, {len(sitemap_entries)} in sitemap, "
+          f"{len(feed_items)} RSS items.")
+    print(f"IndexNow key file: /{INDEXNOW_KEY}.txt")
 
 
 if __name__ == "__main__":
